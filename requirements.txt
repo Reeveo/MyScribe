@@ -1,0 +1,9 @@
+PySide6
+sounddevice
+keyboard
+requests
+configparser
+pytest 
+pygame
+python-dotenv
+soundfile
