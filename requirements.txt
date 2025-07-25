@@ -7,3 +7,5 @@ pytest
 pygame
 python-dotenv
 soundfile
+requests
+openai
