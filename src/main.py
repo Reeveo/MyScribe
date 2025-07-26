@@ -13,6 +13,9 @@ import sounddevice as sd
 import soundfile as sf
 import keyboard
 import pygame
+import assemblyai as aai
+import google.generativeai as genai
+from src.utils import db
 
 CHIME_PATH = os.path.join('resources', 'notification_bell.mp3')
 
@@ -31,6 +34,12 @@ if not SPEECH_TO_TEXT_KEY or not LLM_KEY:
 # Ensure audio directory exists
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
+# Initialize the database
+try:
+    db.init_db()
+except Exception as e:
+    print(f"[MyScribe] Database initialization failed: {e}")
+
 # Audio recording state
 recording = False
 continuous_mode = False
@@ -44,6 +53,62 @@ DOUBLE_PRESS_INTERVAL = 0.5  # seconds
 # For thread-safe communication
 audio_queue = queue.Queue()
 
+# Gemini prompt from PRD
+GEMINI_PROMPT = (
+    "Review the following raw transcript. Remove all filler words (like 'um', 'ah', 'err', 'you know'). "
+    "Correct grammar and punctuation. Format the final output into clean paragraphs. "
+    "If the user outlines a list, format it with bullet points. Do not add any commentary or text that was not in the original transcript."
+)
+
+# --- AssemblyAI Integration (SDK) ---
+def transcribe_with_assemblyai(audio_path, timeout=120):
+    aai.settings.api_key = SPEECH_TO_TEXT_KEY
+    config = aai.TranscriptionConfig(speech_model=aai.SpeechModel.best)
+    try:
+        print("[MyScribe] Uploading and transcribing audio with AssemblyAI...")
+        transcript = aai.Transcriber(config=config).transcribe(audio_path)
+        if transcript.status == "error":
+            print(f"[MyScribe] AssemblyAI transcription failed: {transcript.error}")
+            return None
+        print("[MyScribe] Transcript received from AssemblyAI.")
+        return transcript.text
+    except Exception as e:
+        print(f"[MyScribe] AssemblyAI error: {e}")
+        return None
+
+# --- Gemini Integration (Google Generative AI) ---
+def clean_with_gemini(raw_text, timeout=60):
+    try:
+        print("[MyScribe] Cleaning transcript with Gemini...")
+        genai.configure(api_key=LLM_KEY)
+        model = genai.GenerativeModel("models/gemini-2.5-flash")
+        prompt = GEMINI_PROMPT + "\n\n" + raw_text
+        response = model.generate_content(prompt)
+        cleaned_text = response.text.strip()
+        print("[MyScribe] Cleaned text received from Gemini.")
+        return cleaned_text
+    except Exception as e:
+        print(f"[MyScribe] Gemini API error: {e}")
+        return None
+
+def process_audio_file(audio_path):
+    def _process():
+        print(f"[MyScribe] Processing audio: {audio_path}")
+        raw_text = transcribe_with_assemblyai(audio_path)
+        if not raw_text:
+            print("[MyScribe] No transcript returned.")
+            return
+        cleaned_text = clean_with_gemini(raw_text)
+        if not cleaned_text:
+            print("[MyScribe] No cleaned text returned.")
+            return
+        db.insert_transcription(audio_path, cleaned_text)
+        print("[MyScribe] Cleaned text:")
+        print(cleaned_text)
+    # Run processing in a background thread
+    threading.Thread(target=_process, daemon=True).start()
+
+# --- Existing CLI logic ---
 def play_chime():
     try:
         pygame.mixer.init()
@@ -74,6 +139,8 @@ def record_audio(filename, stop_event):
                 file.write(data)
     print(f"Recording saved: {filename}")
     audio_queue.put(filename)
+    # Process the audio file after recording (now in background)
+    process_audio_file(filename)
 
 def start_recording():
     global recording, recording_thread, stop_recording_event
@@ -161,6 +228,11 @@ def main_cli():
         if recording:
             stop_recording()
 
+def list_gemini_models():
+    print("[MyScribe] Listing available Gemini models:")
+    genai.configure(api_key=LLM_KEY)
+    for m in genai.list_models():
+        print(f"Model: {m.name}, Supported methods: {m.supported_generation_methods}")
 
 # PySide6 window placeholder
 class MainWindow(QMainWindow):
@@ -173,6 +245,8 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == '--cli':
         main_cli()
+    elif len(sys.argv) > 1 and sys.argv[1] == '--list-gemini-models':
+        list_gemini_models()
     else:
         app = QApplication(sys.argv)
         window = MainWindow()

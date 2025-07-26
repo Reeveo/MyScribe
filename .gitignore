@@ -8,3 +8,10 @@ config.example.ini
 venv/
 audio/
 resources/
+myscribe.db
+pycache/
+__pycache__/
+.vscode/
+.idea/
+.DS_Store
+utils/

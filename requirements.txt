@@ -8,4 +8,5 @@ pygame
 python-dotenv
 soundfile
 requests
-openai
+assemblyai
+google-generativeai
