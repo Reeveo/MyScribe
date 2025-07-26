@@ -1,7 +1,7 @@
 # Development Plan: MyScribe MVP (PySide6)
 
 ## Overview
-This plan outlines the actionable steps to deliver the MVP for MyScribe, a personal AI dictation desktop tool, using PySide6 (Qt for Python). The plan is derived from the PRD and focuses strictly on MVP features.
+This plan outlines the actionable steps to deliver the MyScribe application, a personal AI dictation desktop tool, using PySide6 (Qt for Python). The plan is derived from the PRD and covers both MVP (Phase 1) and advanced (Phase 2) features.
 
 ---
 
@@ -78,10 +78,54 @@ This plan outlines the actionable steps to deliver the MVP for MyScribe, a perso
 
 ---
 
-## Out of Scope (Phase 2+)
-- Persistent on-screen bar
-- Real-time sound wave visualization
-- Auto-paste into selected field in other apps
+## Phase 2: Advanced UI/UX & Distribution
+
+### Milestone 5: Application Packaging & Startup
+- **Goal:** Package the application into a distributable executable and configure it to run on system startup.
+- **Tasks:**
+  - Use PyInstaller to package the application into a single executable file.
+  - Create a simple installer using a tool like Inno Setup.
+  - The installer will place the executable in a suitable location (e.g., Program Files) and add a shortcut to the user's Startup folder.
+- **Acceptance Criteria:**
+  - The application can be installed and uninstalled cleanly.
+  - The application launches automatically when the user logs into Windows.
+
+---
+
+### Milestone 6: Persistent On-Screen UI Bar
+- **Goal:** Implement the persistent, slim UI bar for status feedback.
+- **Tasks:**
+  - Create a frameless, always-on-top PySide6 window that docks at the bottom of the screen.
+  - The bar will display the application's current state (Idle, Recording, Processing).
+  - The system tray icon will remain for accessing the History and Exit options.
+- **Acceptance Criteria:**
+  - A slim, non-intrusive bar is always visible.
+  - The bar's appearance updates in real-time with the application's state.
+
+---
+
+### Milestone 7: Real-time Sound Wave Visualization
+- **Goal:** Add a live sound wave visualization to the UI bar during recording.
+- **Tasks:**
+  - Expand the UI bar's height when recording begins.
+  - Capture microphone input data in chunks.
+  - Use QPainter to draw a waveform based on the audio amplitude.
+  - The visualization should be smooth and responsive.
+- **Acceptance Criteria:**
+  - The UI bar expands and shows a live waveform during recording.
+  - The bar collapses back to its original size when recording stops.
+
+---
+
+### Milestone 8: Automatic Text Population
+- **Goal:** Automatically paste the cleaned text into the user's active text field.
+- **Tasks:**
+  - Use a library like `pywin32` to identify the currently focused window and control.
+  - Simulate keyboard input to type the final text.
+  - Add a toggle in the system tray menu to enable or disable this feature.
+- **Acceptance Criteria:**
+  - When enabled, text is automatically typed into the active application.
+  - The feature can be easily toggled on and off by the user.
 
 ---
 
