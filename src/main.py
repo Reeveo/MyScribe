@@ -8,7 +8,9 @@ import glob
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QMainWindow
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QIcon, QAction, QPainter, QColor, QPixmap
+from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 import sounddevice as sd
 import soundfile as sf
 import keyboard
@@ -105,15 +107,18 @@ def process_audio_file(audio_path):
         db.insert_transcription(audio_path, cleaned_text)
         print("[MyScribe] Cleaned text:")
         print(cleaned_text)
-    # Run processing in a background thread
-    threading.Thread(target=_process, daemon=True).start()
+        # Return the cleaned text so it can be used by the caller
+        return cleaned_text
+    # This will be called from the tray app, which will manage the thread
+    return _process()
 
 # --- Existing CLI logic ---
 def play_chime():
     try:
-        pygame.mixer.init()
         pygame.mixer.music.load(CHIME_PATH)
         pygame.mixer.music.play()
+        # Add a small delay to ensure the chime plays fully
+        time.sleep(0.5)
     except Exception as e:
         print(f"[MyScribe] Could not play chime: {e}")
 
@@ -234,13 +239,131 @@ def list_gemini_models():
     for m in genai.list_models():
         print(f"Model: {m.name}, Supported methods: {m.supported_generation_methods}")
 
-# PySide6 window placeholder
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("MyScribe")
-        self.setGeometry(100, 100, 800, 600)
-        # Placeholder for future UI
+# --- System Tray Application ---
+class ClipboardSignalEmitter(QObject):
+    text_copied = Signal(str)
+
+class SystemTrayApp:
+    def __init__(self, app):
+        self.app = app
+        self.tray_icon = QSystemTrayIcon(self.create_icon("grey"), self.app)
+        self.tray_icon.setToolTip("MyScribe - Idle")
+
+        menu = QMenu()
+        exit_action = QAction("Exit", self.app)
+        exit_action.triggered.connect(self.on_exit)
+        menu.addAction(exit_action)
+
+        self.tray_icon.setContextMenu(menu)
+        self.tray_icon.show()
+
+        # Initialize and setup logic
+        pygame.mixer.init()
+        delete_old_audio_files()
+        self.setup_hotkeys()
+
+        # Setup clipboard signal
+        self.clipboard_emitter = ClipboardSignalEmitter()
+        self.clipboard_emitter.text_copied.connect(self.copy_text_to_clipboard)
+
+    def create_icon(self, color_name):
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(QColor("transparent"))
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor(color_name))
+        painter.setPen(QColor("white"))
+        painter.drawEllipse(4, 4, 56, 56)
+        painter.end()
+        return QIcon(pixmap)
+
+    def set_idle_icon(self):
+        self.tray_icon.setIcon(self.create_icon("grey"))
+        self.tray_icon.setToolTip("MyScribe - Idle")
+
+    def set_recording_icon(self):
+        self.tray_icon.setIcon(self.create_icon("red"))
+        self.tray_icon.setToolTip("MyScribe - Recording")
+
+    def set_processing_icon(self):
+        self.tray_icon.setIcon(self.create_icon("blue"))
+        self.tray_icon.setToolTip("MyScribe - Processing")
+
+    def on_exit(self):
+        print("[MyScribe] Exiting...")
+        if recording:
+            stop_recording()
+        self.app.quit()
+
+    def process_audio_queue(self):
+        """Monitors the queue for new audio files and processes them."""
+        try:
+            while True:
+                audio_path = audio_queue.get()
+                self.set_processing_icon()
+                # Run processing in a background thread to not block the queue monitor
+                threading.Thread(target=self.run_processing, args=(audio_path,), daemon=True).start()
+                audio_queue.task_done()
+        except queue.Empty:
+            pass # This is expected when the queue is empty
+
+    def run_processing(self, audio_path):
+        cleaned_text = process_audio_file(audio_path)
+        if cleaned_text:
+            self.clipboard_emitter.text_copied.emit(cleaned_text)
+        # Once processing is done, switch icon back to idle
+        self.set_idle_icon()
+
+    def copy_text_to_clipboard(self, text):
+        clipboard = QApplication.clipboard()
+        clipboard.setText(text)
+        print("[MyScribe] Cleaned text copied to clipboard.")
+
+    def start_recording_ui(self):
+        self.set_recording_icon()
+        start_recording()
+
+    def stop_recording_ui(self):
+        stop_recording()
+        play_chime() # Play chime when recording stops
+        # The icon will be set to processing when the file is picked up from the queue
+        # and back to idle when it's done.
+
+    def on_ctrl_alt_press(self, e=None):
+        global last_press_time, continuous_mode
+        now = time.time()
+        if not recording:
+            if now - last_press_time < DOUBLE_PRESS_INTERVAL:
+                continuous_mode = True
+                play_chime()
+                self.start_recording_ui()
+            else:
+                last_press_time = now
+                continuous_mode = False
+                self.start_recording_ui()
+        else:
+            if continuous_mode:
+                self.stop_recording_ui()
+                continuous_mode = False
+
+    def on_ctrl_alt_release(self, e=None):
+        if recording and not continuous_mode:
+            self.stop_recording_ui()
+
+    def on_ctrl_alt_space(self, e=None):
+        global continuous_mode
+        if not recording:
+            continuous_mode = True
+            play_chime()
+            self.start_recording_ui()
+
+    def setup_hotkeys(self):
+        keyboard.add_hotkey('ctrl+alt', self.on_ctrl_alt_press, suppress=False, trigger_on_release=False)
+        keyboard.on_release_key('ctrl', self.on_ctrl_alt_release)
+        keyboard.on_release_key('alt', self.on_ctrl_alt_release)
+        keyboard.add_hotkey('ctrl+alt+space', self.on_ctrl_alt_space, suppress=False)
+        print("[MyScribe] Hotkeys registered and application is running in the system tray.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == '--cli':
@@ -249,6 +372,12 @@ if __name__ == "__main__":
         list_gemini_models()
     else:
         app = QApplication(sys.argv)
-        window = MainWindow()
-        window.show()
-        sys.exit(app.exec()) 
+        # Prevent app from quitting when last window is closed
+        app.setQuitOnLastWindowClosed(False)
+        tray_app = SystemTrayApp(app)
+
+        # Start a thread to monitor the audio queue
+        queue_monitor_thread = threading.Thread(target=tray_app.process_audio_queue, daemon=True)
+        queue_monitor_thread.start()
+
+        sys.exit(app.exec())
