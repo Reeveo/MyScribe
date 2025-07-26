@@ -21,6 +21,7 @@ from src.utils import db
 from src.ui.history_window import HistoryWindow
 
 CHIME_PATH = os.path.join('resources', 'notification_bell.mp3')
+ICON_PATH = os.path.join('resources', 'Myscribe_icon.png')
 
 # Load environment variables from .env file
 load_dotenv()
@@ -251,7 +252,7 @@ class SystemTrayApp:
         self.signals = WorkerSignals()
         self.history_window = None # To hold the history window instance
 
-        self.tray_icon = QSystemTrayIcon(self.create_icon("grey"), self.app)
+        self.tray_icon = QSystemTrayIcon(QIcon(ICON_PATH), self.app)
         self.tray_icon.setToolTip("MyScribe - Idle")
 
         menu = QMenu()
@@ -277,27 +278,17 @@ class SystemTrayApp:
         self.signals.started.connect(self.on_processing_started)
         self.signals.finished.connect(self.on_processing_finished)
 
-    def create_icon(self, color_name):
-        pixmap = QPixmap(64, 64)
-        pixmap.fill(QColor("transparent"))
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QColor(color_name))
-        painter.setPen(QColor("white"))
-        painter.drawEllipse(4, 4, 56, 56)
-        painter.end()
-        return QIcon(pixmap)
-
     def set_idle_icon(self):
-        self.tray_icon.setIcon(self.create_icon("grey"))
+        self.tray_icon.setIcon(QIcon(ICON_PATH))
         self.tray_icon.setToolTip("MyScribe - Idle")
 
     def set_recording_icon(self):
-        self.tray_icon.setIcon(self.create_icon("red"))
+        # For now, we'll just change the tooltip. A more advanced implementation
+        # could overlay a red dot on the icon.
         self.tray_icon.setToolTip("MyScribe - Recording")
 
     def set_processing_icon(self):
-        self.tray_icon.setIcon(self.create_icon("blue"))
+        # Tooltip change for processing state
         self.tray_icon.setToolTip("MyScribe - Processing")
 
     def on_exit(self):
