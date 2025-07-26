@@ -240,12 +240,14 @@ def list_gemini_models():
         print(f"Model: {m.name}, Supported methods: {m.supported_generation_methods}")
 
 # --- System Tray Application ---
-class ClipboardSignalEmitter(QObject):
-    text_copied = Signal(str)
+class WorkerSignals(QObject):
+    started = Signal()
+    finished = Signal(str)
 
 class SystemTrayApp:
     def __init__(self, app):
         self.app = app
+        self.signals = WorkerSignals()
         self.tray_icon = QSystemTrayIcon(self.create_icon("grey"), self.app)
         self.tray_icon.setToolTip("MyScribe - Idle")
 
@@ -262,9 +264,9 @@ class SystemTrayApp:
         delete_old_audio_files()
         self.setup_hotkeys()
 
-        # Setup clipboard signal
-        self.clipboard_emitter = ClipboardSignalEmitter()
-        self.clipboard_emitter.text_copied.connect(self.copy_text_to_clipboard)
+        # Setup thread-safe signals
+        self.signals.started.connect(self.on_processing_started)
+        self.signals.finished.connect(self.on_processing_finished)
 
     def create_icon(self, color_name):
         pixmap = QPixmap(64, 64)
@@ -297,27 +299,29 @@ class SystemTrayApp:
 
     def process_audio_queue(self):
         """Monitors the queue for new audio files and processes them."""
-        try:
-            while True:
-                audio_path = audio_queue.get()
-                self.set_processing_icon()
+        while True:
+            try:
+                audio_path = audio_queue.get(timeout=1) # Use timeout to allow periodic checks
                 # Run processing in a background thread to not block the queue monitor
                 threading.Thread(target=self.run_processing, args=(audio_path,), daemon=True).start()
                 audio_queue.task_done()
-        except queue.Empty:
-            pass # This is expected when the queue is empty
+            except queue.Empty:
+                continue # This is expected, just continue the loop
 
     def run_processing(self, audio_path):
+        self.signals.started.emit()
         cleaned_text = process_audio_file(audio_path)
-        if cleaned_text:
-            self.clipboard_emitter.text_copied.emit(cleaned_text)
-        # Once processing is done, switch icon back to idle
-        self.set_idle_icon()
+        self.signals.finished.emit(cleaned_text or "")
 
-    def copy_text_to_clipboard(self, text):
-        clipboard = QApplication.clipboard()
-        clipboard.setText(text)
-        print("[MyScribe] Cleaned text copied to clipboard.")
+    def on_processing_started(self):
+        self.set_processing_icon()
+
+    def on_processing_finished(self, cleaned_text):
+        if cleaned_text:
+            clipboard = QApplication.clipboard()
+            clipboard.setText(cleaned_text)
+            print("[MyScribe] Cleaned text copied to clipboard.")
+        self.set_idle_icon()
 
     def start_recording_ui(self):
         self.set_recording_icon()
