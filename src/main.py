@@ -18,6 +18,7 @@ import pygame
 import assemblyai as aai
 import google.generativeai as genai
 from src.utils import db
+from src.ui.history_window import HistoryWindow
 
 CHIME_PATH = os.path.join('resources', 'notification_bell.mp3')
 
@@ -248,10 +249,18 @@ class SystemTrayApp:
     def __init__(self, app):
         self.app = app
         self.signals = WorkerSignals()
+        self.history_window = None # To hold the history window instance
+
         self.tray_icon = QSystemTrayIcon(self.create_icon("grey"), self.app)
         self.tray_icon.setToolTip("MyScribe - Idle")
 
         menu = QMenu()
+        history_action = QAction("History", self.app)
+        history_action.triggered.connect(self.show_history)
+        menu.addAction(history_action)
+
+        menu.addSeparator()
+
         exit_action = QAction("Exit", self.app)
         exit_action.triggered.connect(self.on_exit)
         menu.addAction(exit_action)
@@ -322,6 +331,13 @@ class SystemTrayApp:
             clipboard.setText(cleaned_text)
             print("[MyScribe] Cleaned text copied to clipboard.")
         self.set_idle_icon()
+
+    def show_history(self):
+        if self.history_window is None:
+            self.history_window = HistoryWindow()
+        self.history_window.populate_history()
+        self.history_window.show()
+        self.history_window.activateWindow()
 
     def start_recording_ui(self):
         self.set_recording_icon()
