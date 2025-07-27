@@ -87,3 +87,7 @@ class HistoryWindow(QMainWindow):
     def copy_to_clipboard(self, text):
         clipboard = QApplication.clipboard()
         clipboard.setText(text)
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.hide()

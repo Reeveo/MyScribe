@@ -1,7 +1,12 @@
 import sqlite3
+import os
 from datetime import datetime
 
-DB_PATH = 'myscribe.db'
+APP_NAME = "MyScribe"
+APP_AUTHOR = "MyScribe"
+APP_DATA_DIR = os.path.join(os.getenv('APPDATA'), APP_NAME)
+os.makedirs(APP_DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(APP_DATA_DIR, 'myscribe.db')
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
