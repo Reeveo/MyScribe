@@ -20,8 +20,20 @@ import google.generativeai as genai
 from src.utils import db
 from src.ui.history_window import HistoryWindow
 
-CHIME_PATH = os.path.join('resources', 'notification_bell.mp3')
-ICON_PATH = os.path.join('resources', 'Myscribe_icon.png')
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, relative_path)
+
+CHIME_PATH = resource_path(os.path.join('resources', 'notification_bell.mp3'))
+BUBBLE_POP_PATH = resource_path(os.path.join('resources', 'bubble_pop.mp3'))
+DOUBLE_POP_PATH = resource_path(os.path.join('resources', 'double_pop.mp3'))
+ICON_PATH = resource_path(os.path.join('resources', 'Myscribe_icon.png'))
 
 # Load environment variables from .env file
 load_dotenv()
@@ -124,6 +136,15 @@ def play_chime():
     except Exception as e:
         print(f"[MyScribe] Could not play chime: {e}")
 
+def play_pop():
+    try:
+        pygame.mixer.music.load(BUBBLE_POP_PATH)
+        pygame.mixer.music.play()
+        # Add a small delay to ensure the chime plays fully
+        time.sleep(0.6)
+    except Exception as e:
+        print(f"[MyScribe] Could not play pop: {e}")        
+
 def delete_old_audio_files():
     now = datetime.now()
     for file in glob.glob(os.path.join(AUDIO_DIR, '*.wav')):
@@ -146,8 +167,7 @@ def record_audio(filename, stop_event):
                 file.write(data)
     print(f"Recording saved: {filename}")
     audio_queue.put(filename)
-    # Process the audio file after recording (now in background)
-    process_audio_file(filename)
+    # The audio file will be picked up and processed by the queue monitor
 
 def start_recording():
     global recording, recording_thread, stop_recording_event
@@ -178,7 +198,6 @@ def on_ctrl_alt_press(e=None):
         # Check for double-press
         if now - last_press_time < DOUBLE_PRESS_INTERVAL:
             continuous_mode = True
-            play_chime()
             print("[MyScribe] Continuous mode enabled.")
             start_recording()
         else:
@@ -204,7 +223,6 @@ def on_ctrl_alt_space(e=None):
     global continuous_mode
     if not recording:
         continuous_mode = True
-        play_chime()
         print("[MyScribe] Continuous mode enabled (via Space).")
         start_recording()
     else:
@@ -245,6 +263,7 @@ def list_gemini_models():
 class WorkerSignals(QObject):
     started = Signal()
     finished = Signal(str)
+    processing_finished_sound = Signal()
 
 class SystemTrayApp:
     def __init__(self, app):
@@ -260,6 +279,11 @@ class SystemTrayApp:
         history_action.triggered.connect(self.show_history)
         menu.addAction(history_action)
 
+        self.auto_paste_action = QAction("Auto-paste", self.app)
+        self.auto_paste_action.setCheckable(True)
+        self.auto_paste_action.setChecked(False) # Default to off
+        menu.addAction(self.auto_paste_action)
+
         menu.addSeparator()
 
         exit_action = QAction("Exit", self.app)
@@ -274,9 +298,13 @@ class SystemTrayApp:
         delete_old_audio_files()
         self.setup_hotkeys()
 
+        # Show the history window on startup
+        self.show_history()
+
         # Setup thread-safe signals
         self.signals.started.connect(self.on_processing_started)
         self.signals.finished.connect(self.on_processing_finished)
+        self.signals.processing_finished_sound.connect(self.play_double_pop)
 
     def set_idle_icon(self):
         self.tray_icon.setIcon(QIcon(ICON_PATH))
@@ -312,16 +340,23 @@ class SystemTrayApp:
         self.signals.started.emit()
         cleaned_text = process_audio_file(audio_path)
         self.signals.finished.emit(cleaned_text or "")
+        self.signals.processing_finished_sound.emit()
 
     def on_processing_started(self):
         self.set_processing_icon()
 
     def on_processing_finished(self, cleaned_text):
         if cleaned_text:
-            clipboard = QApplication.clipboard()
-            clipboard.setText(cleaned_text)
-            print("[MyScribe] Cleaned text copied to clipboard.")
+            if self.auto_paste_action.isChecked():
+                keyboard.write(cleaned_text)
+                print("[MyScribe] Cleaned text auto-pasted.")
+            else:
+                clipboard = QApplication.clipboard()
+                clipboard.setText(cleaned_text)
+                print("[MyScribe] Cleaned text copied to clipboard.")
         self.set_idle_icon()
+        if self.history_window:
+            self.history_window.populate_history()
 
     def show_history(self):
         if self.history_window is None:
@@ -330,8 +365,16 @@ class SystemTrayApp:
         self.history_window.show()
         self.history_window.activateWindow()
 
+    def play_double_pop(self):
+        try:
+            pygame.mixer.music.load(DOUBLE_POP_PATH)
+            pygame.mixer.music.play()
+        except Exception as e:
+            print(f"[MyScribe] Could not play double pop: {e}")
+
     def start_recording_ui(self):
         self.set_recording_icon()
+        play_pop()
         start_recording()
 
     def stop_recording_ui(self):
@@ -346,7 +389,6 @@ class SystemTrayApp:
         if not recording:
             if now - last_press_time < DOUBLE_PRESS_INTERVAL:
                 continuous_mode = True
-                play_chime()
                 self.start_recording_ui()
             else:
                 last_press_time = now
@@ -365,7 +407,6 @@ class SystemTrayApp:
         global continuous_mode
         if not recording:
             continuous_mode = True
-            play_chime()
             self.start_recording_ui()
 
     def setup_hotkeys(self):
