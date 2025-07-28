@@ -281,7 +281,7 @@ class SystemTrayApp:
 
         self.auto_paste_action = QAction("Auto-paste", self.app)
         self.auto_paste_action.setCheckable(True)
-        self.auto_paste_action.setChecked(False) # Default to off
+        self.auto_paste_action.setChecked(True) # Default to on
         menu.addAction(self.auto_paste_action)
 
         menu.addSeparator()
@@ -323,6 +323,7 @@ class SystemTrayApp:
         print("[MyScribe] Exiting...")
         if recording:
             stop_recording()
+        keyboard.unhook_all()
         self.app.quit()
 
     def process_audio_queue(self):
