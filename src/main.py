@@ -33,7 +33,7 @@ def resource_path(relative_path):
 CHIME_PATH = resource_path(os.path.join('resources', 'notification_bell.mp3'))
 BUBBLE_POP_PATH = resource_path(os.path.join('resources', 'bubble_pop.mp3'))
 DOUBLE_POP_PATH = resource_path(os.path.join('resources', 'double_pop.mp3'))
-ICON_PATH = resource_path(os.path.join('resources', 'Myscribe_icon.png'))
+ICON_PATH = resource_path(os.path.join('resources', 'Myscribe_icon.ico'))
 
 # Load environment variables from .env file
 load_dotenv()
@@ -63,8 +63,6 @@ recording_thread = None
 stop_recording_event = threading.Event()
 
 # For double-press detection
-last_press_time = 0
-DOUBLE_PRESS_INTERVAL = 0.5  # seconds
 
 # For thread-safe communication
 audio_queue = queue.Queue()
@@ -192,56 +190,48 @@ def stop_recording():
     print("[MyScribe] Recording stopped.")
 
 def on_ctrl_alt_press(e=None):
-    global last_press_time, continuous_mode
-    now = time.time()
-    if not recording:
-        # Check for double-press
-        if now - last_press_time < DOUBLE_PRESS_INTERVAL:
-            continuous_mode = True
-            print("[MyScribe] Continuous mode enabled.")
-            start_recording()
-        else:
-            last_press_time = now
-            # Start hold-to-record
-            continuous_mode = False
-            start_recording()
-    else:
-        if continuous_mode:
-            # Stop continuous mode
-            stop_recording()
-            continuous_mode = False
-            print("[MyScribe] Continuous mode disabled.")
-        else:
-            # Already recording in hold-to-record, ignore
-            pass
+    global continuous_mode
+    # This hotkey now ONLY stops continuous recording.
+    if recording and continuous_mode:
+        stop_recording()
+        continuous_mode = False
+        print("[MyScribe] Continuous mode disabled.")
 
-def on_ctrl_alt_release(e=None):
+def on_ctrl_shift_press(e=None):
+    global continuous_mode
+    if not recording:
+        continuous_mode = False # Hold-to-record
+        start_recording()
+
+def on_key_release(e=None):
+    # Stops hold-to-record when keys are released
     if recording and not continuous_mode:
         stop_recording()
 
 def on_ctrl_alt_space(e=None):
     global continuous_mode
+    # Toggles continuous recording
     if not recording:
         continuous_mode = True
-        print("[MyScribe] Continuous mode enabled (via Space).")
+        print("[MyScribe] Continuous mode enabled.")
         start_recording()
-    else:
-        # If already recording, ignore
-        pass
+    elif continuous_mode:
+        stop_recording()
+        continuous_mode = False
+        print("[MyScribe] Continuous mode disabled.")
 
 def setup_hotkeys():
-    # Listen for Ctrl+Alt press
-    keyboard.add_hotkey('ctrl+alt', on_ctrl_alt_press, suppress=False, trigger_on_release=False)
-    # Listen for Ctrl+Alt release (for hold-to-record mode)
-    keyboard.on_release_key('ctrl', on_ctrl_alt_release)
-    keyboard.on_release_key('alt', on_ctrl_alt_release)
-    # Listen for Ctrl+Alt+Space for continuous mode
+    keyboard.unhook_all()  # Start fresh
     keyboard.add_hotkey('ctrl+alt+space', on_ctrl_alt_space, suppress=False)
-    print("[MyScribe] Hotkeys registered: Ctrl+Alt (hold or double-press), Ctrl+Alt+Space (continuous mode)")
+    keyboard.add_hotkey('ctrl+alt', on_ctrl_alt_press, suppress=False)
+    keyboard.add_hotkey('ctrl+shift', on_ctrl_shift_press, suppress=False, trigger_on_release=False)
+    keyboard.on_release_key('ctrl', on_key_release)
+    keyboard.on_release_key('shift', on_key_release)
+    print("[MyScribe] Hotkeys: Ctrl+Alt+Space (toggle continuous), Ctrl+Alt (stop), Ctrl+Shift (hold to record)")
 
 
 def main_cli():
-    print("[MyScribe] CLI prototype started. Press Ctrl+Alt to record, double-press for continuous, Ctrl+Alt+Space for continuous mode.")
+    print("[MyScribe] CLI prototype started. Press Ctrl+Alt+Space to toggle continuous, Ctrl+Shift to hold-to-record, Ctrl+Alt to stop.")
     pygame.mixer.init()
     delete_old_audio_files()
     setup_hotkeys()
@@ -385,36 +375,40 @@ class SystemTrayApp:
         # and back to idle when it's done.
 
     def on_ctrl_alt_press(self, e=None):
-        global last_press_time, continuous_mode
-        now = time.time()
-        if not recording:
-            if now - last_press_time < DOUBLE_PRESS_INTERVAL:
-                continuous_mode = True
-                self.start_recording_ui()
-            else:
-                last_press_time = now
-                continuous_mode = False
-                self.start_recording_ui()
-        else:
-            if continuous_mode:
-                self.stop_recording_ui()
-                continuous_mode = False
+        global continuous_mode
+        # This hotkey now ONLY stops continuous recording.
+        if recording and continuous_mode:
+            self.stop_recording_ui()
+            continuous_mode = False
 
-    def on_ctrl_alt_release(self, e=None):
+    def on_ctrl_shift_press(self, e=None):
+        global continuous_mode
+        if not recording:
+            continuous_mode = False # Hold-to-record
+            self.start_recording_ui()
+
+    def on_key_release(self, e=None):
+        # Stops hold-to-record when keys are released
         if recording and not continuous_mode:
             self.stop_recording_ui()
 
     def on_ctrl_alt_space(self, e=None):
         global continuous_mode
+        # Toggles continuous recording
         if not recording:
             continuous_mode = True
             self.start_recording_ui()
+        elif continuous_mode:
+            self.stop_recording_ui()
+            continuous_mode = False
 
     def setup_hotkeys(self):
-        keyboard.add_hotkey('ctrl+alt', self.on_ctrl_alt_press, suppress=False, trigger_on_release=False)
-        keyboard.on_release_key('ctrl', self.on_ctrl_alt_release)
-        keyboard.on_release_key('alt', self.on_ctrl_alt_release)
+        keyboard.unhook_all()  # Start fresh
         keyboard.add_hotkey('ctrl+alt+space', self.on_ctrl_alt_space, suppress=False)
+        keyboard.add_hotkey('ctrl+alt', self.on_ctrl_alt_press, suppress=False)
+        keyboard.add_hotkey('ctrl+shift', self.on_ctrl_shift_press, suppress=False, trigger_on_release=False)
+        keyboard.on_release_key('ctrl', self.on_key_release)
+        keyboard.on_release_key('shift', self.on_key_release)
         print("[MyScribe] Hotkeys registered and application is running in the system tray.")
 
 
